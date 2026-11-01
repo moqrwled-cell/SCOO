@@ -187,13 +187,21 @@ export default function ClassManager({
       phone: studentFormPhone.trim()
     };
 
-    await onSaveStudent(activeClassStudents.id, studentPayload);
+    const saved = await onSaveStudent(activeClassStudents.id, studentPayload);
 
-    // Update active class state locally for instant view update
-    const updatedClass = classes.find(c => c.id === activeClassStudents.id);
-    if (updatedClass) {
-      setActiveClassStudents(updatedClass);
-    }
+    // Update active class state directly for instant view update
+    setActiveClassStudents(prev => {
+      if (!prev) return null;
+      const students = [...(prev.students || [])];
+      const sIdx = students.findIndex(s => s.id === (saved?.id || studentPayload.id));
+      if (sIdx !== -1) {
+        students[sIdx] = saved || { ...studentPayload, id: students[sIdx].id };
+      } else {
+        students.push(saved || studentPayload);
+      }
+      students.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
+      return { ...prev, students };
+    });
     setShowStudentForm(false);
   };
 
@@ -201,10 +209,14 @@ export default function ClassManager({
     if (!activeClassStudents) return;
     if (confirm('هل أنت متأكد من حذف هذا الطالب من الفصل؟')) {
       await onDeleteStudent(activeClassStudents.id, studentId);
-      const updatedClass = classes.find(c => c.id === activeClassStudents.id);
-      if (updatedClass) {
-        setActiveClassStudents(updatedClass);
-      }
+      // Immediately remove student from modal view
+      setActiveClassStudents(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          students: (prev.students || []).filter(s => s.id !== studentId)
+        };
+      });
     }
   };
 

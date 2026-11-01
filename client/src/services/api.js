@@ -485,8 +485,11 @@ export const api = {
   // Delete Single Student from a class
   async deleteStudent(classId, studentId) {
     try {
-      await supabase.from('students').delete().eq('id', studentId);
       await supabase.from('attendance').delete().eq('student_id', studentId);
+      const { error } = await supabase.from('students').delete().eq('id', studentId);
+      if (error) {
+        console.error('Supabase delete error:', error);
+      }
     } catch (e) {
       console.warn('Supabase deleteStudent failed:', e);
     }

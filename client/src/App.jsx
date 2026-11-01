@@ -130,6 +130,7 @@ export default function App() {
       }
       return c;
     }));
+    return saved;
   };
 
   // Handler: Delete Student
