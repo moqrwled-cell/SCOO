@@ -111,21 +111,26 @@ export default function ClassManager({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
       {/* Top Banner & Sample Download */}
-      <div className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">إدارة الصفوف ورفع ملفات الإكسل</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">إدارة الصفوف ورفع ملفات الإكسل</h2>
+            <span className="text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+              مدرسة قطوف الخير
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-1">
-            ارفع ملف إكسل لكل فصل لمرة واحدة فقط. يتعرف النظام تلقائياً على الأسماء وأرقام الهواتف.
+            ارفع ملف إكسل فصل المعلمة لمرة واحدة فقط. يقوم النظام تلقائياً باستخراج الطلاب وترتيب أسمائهم أبجدياً (أ - ي).
           </p>
         </div>
 
         <button
           type="button"
           onClick={downloadSampleExcel}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 shadow-xs transition-colors shrink-0"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 shadow-xs transition-colors shrink-0"
         >
           <Download className="w-3.5 h-3.5 text-slate-500" />
-          <span>تحميل نموذج Excel فارغ</span>
+          <span>تحميل نموذج Excel جاهز</span>
         </button>
       </div>
 
@@ -289,20 +294,25 @@ export default function ClassManager({
 
           {/* Students Preview Table */}
           <div>
-            <h4 className="text-xs font-bold text-slate-700 mb-2">معاينة أول 5 طلاب من الملف:</h4>
-            <div className="bg-slate-50 rounded-lg border border-slate-200 overflow-hidden">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-bold text-slate-800">قائمة الطلاب المستخرجة:</h4>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                ✨ مرتبة أبجدياً تلقائياً (أ - ي)
+              </span>
+            </div>
+            <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden max-h-64 overflow-y-auto">
               <table className="w-full text-right text-xs">
-                <thead className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200">
+                <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200 sticky top-0">
                   <tr>
                     <th className="p-2.5">م</th>
-                    <th className="p-2.5">اسم الطالب المستخرج</th>
+                    <th className="p-2.5">اسم الطالب (أبجدياً)</th>
                     <th className="p-2.5">رقم القيد</th>
                     <th className="p-2.5">هاتف ولي الأمر</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {parsedData.students.slice(0, 5).map((st, i) => (
-                    <tr key={i}>
+                  {parsedData.students.map((st, i) => (
+                    <tr key={i} className="hover:bg-white transition-colors">
                       <td className="p-2.5 text-slate-500 tabular-nums">{i + 1}</td>
                       <td className="p-2.5 font-bold text-slate-900">{st.name}</td>
                       <td className="p-2.5 font-mono text-slate-600 tabular-nums">{st.nationalId || '-'}</td>

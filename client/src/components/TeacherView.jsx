@@ -67,6 +67,19 @@ export default function TeacherView({
     }
   }, [filteredClasses, selectedClassId]);
 
+  // When a teacher selects her name, automatically select her class & schedule
+  useEffect(() => {
+    if (selectedTeacherId) {
+      const teacherClass = classes.find(c => c.teacherId === selectedTeacherId);
+      if (teacherClass) {
+        setSelectedClassId(teacherClass.id);
+        if (teacherClass.schedule) {
+          setActiveSchedule(teacherClass.schedule);
+        }
+      }
+    }
+  }, [selectedTeacherId, classes]);
+
   const currentClass = useMemo(() => {
     return classes.find(c => c.id === selectedClassId) || null;
   }, [classes, selectedClassId]);
@@ -161,13 +174,17 @@ export default function TeacherView({
     return { total, present, absent, late, excused, unmarked };
   }, [currentClass, records]);
 
-  // Filter students by search
+  // Filter students by search and ensure alphabetical order (أ - ي)
   const visibleStudents = useMemo(() => {
     if (!currentClass || !currentClass.students) return [];
-    if (!searchQuery.trim()) return currentClass.students;
+    let list = [...currentClass.students].sort((a, b) => 
+      a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' })
+    );
+
+    if (!searchQuery.trim()) return list;
 
     const q = searchQuery.trim().toLowerCase();
-    return currentClass.students.filter(st => {
+    return list.filter(st => {
       const nameMatch = (st.name || '').toLowerCase().includes(q);
       const idMatch = (st.nationalId || '').toLowerCase().includes(q);
       return nameMatch || idMatch;

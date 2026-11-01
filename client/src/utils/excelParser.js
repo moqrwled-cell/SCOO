@@ -8,7 +8,8 @@ const FIELD_KEYWORDS = {
 };
 
 /**
- * Parses an Excel or CSV file buffer and attempts to extract student rows
+ * Parses an Excel or CSV file buffer, extracts student rows,
+ * and automatically sorts student names alphabetically (أبجدياً أ - ي).
  */
 export async function parseExcelFile(file) {
   return new Promise((resolve, reject) => {
@@ -23,7 +24,7 @@ export async function parseExcelFile(file) {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         
-        // Convert sheet to array of rows (header: 1 gives array of arrays)
+        // Convert sheet to array of rows
         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         
         if (!rows || rows.length < 2) {
@@ -45,7 +46,7 @@ export async function parseExcelFile(file) {
         const mapping = detectColumns(headers);
 
         // Extract student records
-        const students = [];
+        let students = [];
         for (let r = headerRowIdx + 1; r < rows.length; r++) {
           const row = rows[r];
           if (!row || row.length === 0) continue;
@@ -72,6 +73,9 @@ export async function parseExcelFile(file) {
             phone: rawPhone
           });
         }
+
+        // Automatic Arabic Alphabetical Sorting (أبجدياً أ - ي)
+        students.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
 
         resolve({
           sheetName,
@@ -130,36 +134,42 @@ function detectColumns(headers) {
 }
 
 /**
- * Downloads a sample clean Excel template for teachers to fill
+ * Downloads a sample clean Excel template for teachers of Qutoof Al-Khair school
  */
 export function downloadSampleExcel() {
   const sampleData = [
     { 'اسم الطالب': 'أحمد إبراهيم منصور', 'رقم القيد': '101', 'هاتف ولي الأمر': '0599112233' },
-    { 'اسم الطالب': 'فاطمة محمود الكردي', 'رقم القيد': '102', 'هاتف ولي الأمر': '0599223344' },
-    { 'اسم الطالب': 'عمر سامر البيطار', 'رقم القيد': '103', 'هاتف ولي الأمر': '0599334455' },
-    { 'اسم الطالب': 'سارة خالد النجار', 'رقم القيد': '104', 'هاتف ولي الأمر': '0599445566' }
+    { 'اسم الطالب': 'براء طارق الدجاني', 'رقم القيد': '102', 'هاتف ولي الأمر': '0599223344' },
+    { 'اسم الطالب': 'تسنيم جميل البرغوثي', 'رقم القيد': '103', 'هاتف ولي الأمر': '0599334455' },
+    { 'اسم الطالب': 'سارة خالد النجار', 'رقم القيد': '104', 'هاتف ولي الأمر': '0599445566' },
+    { 'اسم الطالب': 'عمر سامر البيطار', 'رقم القيد': '105', 'هاتف ولي الأمر': '0599556677' },
+    { 'اسم الطالب': 'فاطمة محمود الكردي', 'رقم القيد': '106', 'هاتف ولي الأمر': '0599667788' }
   ];
 
   const worksheet = XLSX.utils.json_to_sheet(sampleData);
-  // Set RTL direction on sheet
   worksheet['!views'] = [{ rightToLeft: true }];
   
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'الطلاب');
-  XLSX.writeFile(workbook, 'نموذج_قائمة_الطلاب.xlsx');
+  XLSX.writeFile(workbook, 'نموذج_طلاب_مدرسة_قطوف_الخير.xlsx');
 }
 
 /**
  * Exports school or class attendance report to Excel
  */
-export function exportAttendanceReport({ date, classes, attendance, schoolName }) {
+export function exportAttendanceReport({ date, classes, attendance, schoolName = 'مدرسة قطوف الخير' }) {
   const exportRows = [];
 
   classes.forEach(cls => {
     const classAtt = attendance && attendance[cls.id];
     const records = (classAtt && classAtt.records) || {};
 
-    cls.students.forEach((student, index) => {
+    // Sort students alphabetically for the report
+    const sortedStudents = [...(cls.students || [])].sort((a, b) => 
+      a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' })
+    );
+
+    sortedStudents.forEach((student, index) => {
       const statusRaw = records[student.id] || 'unmarked';
       let statusArabic = 'لم يُسجل';
       if (statusRaw === 'present') statusArabic = 'حاضر';
@@ -169,9 +179,10 @@ export function exportAttendanceReport({ date, classes, attendance, schoolName }
 
       exportRows.push({
         'م': index + 1,
-        'الصف': cls.name,
+        'المدرسة': schoolName,
+        'الفصل': cls.name,
         'المعلمة': cls.teacherName || '-',
-        'اسم الطالب': student.name,
+        'اسم الطالب (مرتب أبجدياً)': student.name,
         'رقم القيد': student.nationalId || '-',
         'حالة الحضور': statusArabic,
         'هاتف ولي الأمر': student.phone || '-',
@@ -183,12 +194,12 @@ export function exportAttendanceReport({ date, classes, attendance, schoolName }
   const worksheet = XLSX.utils.json_to_sheet(exportRows);
   worksheet['!views'] = [{ rightToLeft: true }];
   
-  // Set column widths
   worksheet['!cols'] = [
     { wch: 5 },  // م
-    { wch: 25 }, // الصف
-    { wch: 18 }, // المعلمة
-    { wch: 25 }, // اسم الطالب
+    { wch: 18 }, // المدرسة
+    { wch: 22 }, // الفصل
+    { wch: 16 }, // المعلمة
+    { wch: 26 }, // اسم الطالب
     { wch: 12 }, // رقم القيد
     { wch: 14 }, // حالة الحضور
     { wch: 15 }, // هاتف ولي الأمر
@@ -197,5 +208,5 @@ export function exportAttendanceReport({ date, classes, attendance, schoolName }
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, `تقرير الحضور ${date}`);
-  XLSX.writeFile(workbook, `تقرير_حضور_${date}.xlsx`);
+  XLSX.writeFile(workbook, `كشف_حضور_${schoolName.replace(/\s+/g, '_')}_${date}.xlsx`);
 }

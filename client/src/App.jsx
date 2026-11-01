@@ -12,7 +12,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(() => getTodayDateString());
   
   // School Data State
-  const [schoolName, setSchoolName] = useState('المدرسة النموذجية الحديثة');
+  const [schoolName, setSchoolName] = useState('مدرسة قطوف الخير');
   const [teachers, setTeachers] = useState([]);
   const [classes, setClasses] = useState([]);
   const [attendanceData, setAttendanceData] = useState({});
