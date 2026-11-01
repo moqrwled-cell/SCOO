@@ -112,9 +112,22 @@ export default function TeacherView({
       allPresent[st.id] = 'present';
     });
     setRecords(allPresent);
-    setSaveSuccess(false);
+    setSaveSuccess(true);
     setAllPresentCelebration(true);
-    setTimeout(() => setAllPresentCelebration(false), 3500);
+    setTimeout(() => {
+      setAllPresentCelebration(false);
+      setSaveSuccess(false);
+    }, 3000);
+
+    // Auto-save immediately to Supabase & state
+    if (onSaveAttendance) {
+      onSaveAttendance({
+        date: selectedDate,
+        classId: currentClass.id,
+        records: allPresent,
+        recordedBy: currentClass.teacherName || 'معلمة الصف'
+      });
+    }
   };
 
   // Quick Action: Reset records
@@ -123,16 +136,37 @@ export default function TeacherView({
     setRecords({});
     setSaveSuccess(false);
     setAllPresentCelebration(false);
+
+    if (onSaveAttendance && currentClass) {
+      onSaveAttendance({
+        date: selectedDate,
+        classId: currentClass.id,
+        records: {},
+        recordedBy: currentClass.teacherName || 'معلمة الصف'
+      });
+    }
   };
 
-  // Toggle or set student status with click audio
+  // Toggle or set student status with click audio - INSTANT AUTO-SAVE
   const setStudentStatus = (studentId, status) => {
     playClickSound();
-    setRecords(prev => ({
-      ...prev,
+    const nextRecords = {
+      ...records,
       [studentId]: status
-    }));
-    setSaveSuccess(false);
+    };
+    setRecords(nextRecords);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+
+    // Auto-save immediately to Supabase & state
+    if (onSaveAttendance && currentClass) {
+      onSaveAttendance({
+        date: selectedDate,
+        classId: currentClass.id,
+        records: nextRecords,
+        recordedBy: currentClass.teacherName || 'معلمة الصف'
+      });
+    }
   };
 
   // Save handler with chord sound
@@ -333,9 +367,20 @@ export default function TeacherView({
                     المعلمة: {currentClass.teacherName}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  إجمالي المسجلين: <strong className="text-slate-900 tabular-nums">{stats.total}</strong> طالب/طالبة
-                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <p className="text-xs text-slate-500">
+                    إجمالي المسجلين: <strong className="text-slate-900 tabular-nums">{stats.total}</strong> طالب/طالبة
+                  </p>
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    حفظ تلقائي فوري مع المدير
+                  </span>
+                  {saveSuccess && (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md animate-in fade-in">
+                      ✓ تم الحفظ والمزامنة
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Status Summary Visual Counters */}

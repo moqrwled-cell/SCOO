@@ -5,6 +5,7 @@ import PrincipalDashboard from './components/PrincipalDashboard';
 import ClassManager from './components/ClassManager';
 import PhoneConnectModal from './components/PhoneConnectModal';
 import { api } from './services/api';
+import { supabase } from './services/supabaseClient';
 import { getTodayDateString } from './utils/dateHelpers';
 
 export default function App() {
@@ -13,6 +14,7 @@ export default function App() {
   
   // School Data State
   const [schoolName, setSchoolName] = useState('مدرسة قطوف الخير');
+  const [schoolLogo, setSchoolLogo] = useState('none');
   const [teachers, setTeachers] = useState([]);
   const [classes, setClasses] = useState([]);
   const [attendanceData, setAttendanceData] = useState({});
@@ -26,7 +28,8 @@ export default function App() {
     try {
       const res = await api.getSchoolData();
       if (res && res.data) {
-        setSchoolName(res.data.schoolName || 'المدرسة النموذجية الحديثة');
+        setSchoolName(res.data.schoolName || 'مدرسة قطوف الخير');
+        setSchoolLogo(res.data.schoolLogo || 'none');
         setTeachers(res.data.teachers || []);
         setClasses(res.data.classes || []);
         setAttendanceData(res.data.attendance || {});
@@ -49,12 +52,30 @@ export default function App() {
   useEffect(() => {
     loadData();
 
-    // Auto-refresh every 8 seconds to synchronize between teachers & principal
+    // Fast polling fallback every 2.5 seconds for instant sync between teacher and principal
     const timer = setInterval(() => {
       loadData();
-    }, 8000);
+    }, 2500);
 
-    return () => clearInterval(timer);
+    // Supabase Realtime channel for sub-second sync
+    let channel;
+    try {
+      channel = supabase
+        .channel('attendance_live_stream')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
+          loadData();
+        })
+        .subscribe();
+    } catch (e) {
+      console.warn('Realtime subscription error:', e);
+    }
+
+    return () => {
+      clearInterval(timer);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [loadData]);
 
   // Handler: Save Attendance
@@ -149,6 +170,12 @@ export default function App() {
     setSchoolName(newName);
   };
 
+  // Handler: Update School Logo
+  const handleUpdateSchoolLogo = async (newLogo) => {
+    await api.updateSchoolLogo(newLogo);
+    setSchoolLogo(newLogo);
+  };
+
   // Switch to teacher view with specific class selected
   const handleViewClass = (classId) => {
     setCurrentTab('teacher');
@@ -172,6 +199,8 @@ export default function App() {
         setCurrentTab={setCurrentTab}
         selectedDate={selectedDate}
         schoolName={schoolName}
+        schoolLogo={schoolLogo}
+        onUpdateSchoolLogo={handleUpdateSchoolLogo}
         isOnline={isOnline}
         lanUrl={lanUrl}
         onOpenPhoneModal={() => setIsPhoneModalOpen(true)}

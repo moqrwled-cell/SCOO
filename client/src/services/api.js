@@ -6,6 +6,7 @@ const LOCAL_STORAGE_KEY = 'qutoof_alkhair_attendance_db_v2';
 // Standard 5 Teachers & Classes for Qutoof Al-Khair School
 export const DEFAULT_SCHOOL_DATA = {
   schoolName: "مدرسة قطوف الخير",
+  schoolLogo: "none",
   teachers: [
     { id: "t_nada", name: "أ. ندى", phone: "0599111001" },
     { id: "t_nesreen", name: "أ. نسرين", phone: "0599111002" },
@@ -153,11 +154,14 @@ export const api = {
       ]);
 
       if (!tRes.error && !cRes.error && !sRes.error) {
-        // Dynamic School Name from settings
+        // Dynamic School Name & Logo from settings
         let schoolName = "مدرسة قطوف الخير";
+        let schoolLogo = "none";
         if (!settRes.error && settRes.data) {
           const snRow = settRes.data.find(r => r.key === 'school_name');
           if (snRow && snRow.value) schoolName = snRow.value;
+          const slRow = settRes.data.find(r => r.key === 'school_logo');
+          if (slRow && slRow.value) schoolLogo = slRow.value;
         }
 
         const teachers = tRes.data || [];
@@ -205,6 +209,7 @@ export const api = {
 
         const cloudData = {
           schoolName,
+          schoolLogo,
           teachers,
           classes,
           attendance
@@ -542,5 +547,19 @@ export const api = {
     local.schoolName = schoolName;
     saveLocalData(local);
     return schoolName;
+  },
+
+  // Update School Logo
+  async updateSchoolLogo(logoValue) {
+    try {
+      await supabase.from('settings').upsert({ key: 'school_logo', value: logoValue }, { onConflict: 'key' });
+    } catch (e) {
+      console.warn('Supabase updateSchoolLogo failed:', e);
+    }
+
+    const local = getLocalData();
+    local.schoolLogo = logoValue;
+    saveLocalData(local);
+    return logoValue;
   }
 };
