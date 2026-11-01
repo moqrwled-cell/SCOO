@@ -101,6 +101,55 @@ export default function App() {
     setTeachers(prev => [...prev, saved]);
   };
 
+  // Handler: Update Teacher
+  const handleUpdateTeacher = async (teacherId, teacherData) => {
+    await api.updateTeacher(teacherId, teacherData);
+    setTeachers(prev => prev.map(t => t.id === teacherId ? { ...t, ...teacherData } : t));
+    if (teacherData.name) {
+      setClasses(prev => prev.map(c => c.teacherId === teacherId ? { ...c, teacherName: teacherData.name } : c));
+    }
+  };
+
+  // Handler: Delete Teacher
+  const handleDeleteTeacher = async (teacherId) => {
+    await api.deleteTeacher(teacherId);
+    setTeachers(prev => prev.filter(t => t.id !== teacherId));
+  };
+
+  // Handler: Save Student (Add or Edit)
+  const handleSaveStudent = async (classId, studentData) => {
+    const saved = await api.saveStudent(classId, studentData);
+    setClasses(prev => prev.map(c => {
+      if (c.id === classId) {
+        const students = [...(c.students || [])];
+        const sIdx = students.findIndex(s => s.id === saved.id);
+        if (sIdx !== -1) students[sIdx] = saved;
+        else students.push(saved);
+        students.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
+        return { ...c, students };
+      }
+      return c;
+    }));
+  };
+
+  // Handler: Delete Student
+  const handleDeleteStudent = async (classId, studentId) => {
+    await api.deleteStudent(classId, studentId);
+    setClasses(prev => prev.map(c => {
+      if (c.id === classId) {
+        return { ...c, students: (c.students || []).filter(s => s.id !== studentId) };
+      }
+      return c;
+    }));
+  };
+
+  // Handler: Update School Name
+  const handleUpdateSchoolName = async (newName) => {
+    if (!newName) return;
+    await api.updateSchoolName(newName);
+    setSchoolName(newName);
+  };
+
   // Switch to teacher view with specific class selected
   const handleViewClass = (classId) => {
     setCurrentTab('teacher');
@@ -157,9 +206,15 @@ export default function App() {
           <ClassManager
             classes={classes}
             teachers={teachers}
+            schoolName={schoolName}
             onSaveClass={handleSaveClass}
             onDeleteClass={handleDeleteClass}
             onAddTeacher={handleAddTeacher}
+            onUpdateTeacher={handleUpdateTeacher}
+            onDeleteTeacher={handleDeleteTeacher}
+            onSaveStudent={handleSaveStudent}
+            onDeleteStudent={handleDeleteStudent}
+            onUpdateSchoolName={handleUpdateSchoolName}
           />
         )}
       </main>

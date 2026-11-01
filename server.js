@@ -171,7 +171,7 @@ app.post('/api/settings', (req, res) => {
   res.json({ success: true, schoolName: db.schoolName });
 });
 
-// Teachers: list & add
+// Teachers: list & add & update & delete
 app.get('/api/teachers', (req, res) => {
   const db = getDB();
   res.json(db.teachers || []);
@@ -179,10 +179,10 @@ app.get('/api/teachers', (req, res) => {
 
 app.post('/api/teachers', (req, res) => {
   const db = getDB();
-  const { name, phone } = req.body;
+  const { id, name, phone } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const newTeacher = {
-    id: 't_' + Date.now(),
+    id: id || ('t_' + Date.now()),
     name: name.trim(),
     phone: phone ? phone.trim() : ''
   };
@@ -190,6 +190,28 @@ app.post('/api/teachers', (req, res) => {
   db.teachers.push(newTeacher);
   saveDB(db);
   res.json(newTeacher);
+});
+
+app.put('/api/teachers/:id', (req, res) => {
+  const db = getDB();
+  const teacherId = req.params.id;
+  const { name, phone } = req.body;
+  const idx = (db.teachers || []).findIndex(t => t.id === teacherId);
+  if (idx !== -1) {
+    if (name) db.teachers[idx].name = name.trim();
+    if (phone !== undefined) db.teachers[idx].phone = phone.trim();
+    saveDB(db);
+    return res.json(db.teachers[idx]);
+  }
+  res.status(404).json({ error: 'Teacher not found' });
+});
+
+app.delete('/api/teachers/:id', (req, res) => {
+  const db = getDB();
+  const teacherId = req.params.id;
+  db.teachers = (db.teachers || []).filter(t => t.id !== teacherId);
+  saveDB(db);
+  res.json({ success: true, deletedId: teacherId });
 });
 
 // Classes: list, add, update, delete

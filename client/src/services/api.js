@@ -377,5 +377,145 @@ export const api = {
     local.teachers.push(newT);
     saveLocalData(local);
     return newT;
+  },
+
+  // Update Teacher
+  async updateTeacher(teacherId, teacherData) {
+    try {
+      await supabase.from('teachers').update({
+        name: teacherData.name,
+        phone: teacherData.phone
+      }).eq('id', teacherId);
+
+      // Also update teacher_name in classes if name changed
+      if (teacherData.name) {
+        await supabase.from('classes').update({ teacher_name: teacherData.name }).eq('teacher_id', teacherId);
+      }
+    } catch (e) {
+      console.warn('Supabase updateTeacher failed:', e);
+    }
+
+    try {
+      await fetch(`${API_BASE}/teachers/${teacherId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(teacherData),
+        signal: AbortSignal.timeout(2000)
+      });
+    } catch (e) {
+      // Ignore
+    }
+
+    const local = getLocalData();
+    const idx = (local.teachers || []).findIndex(t => t.id === teacherId);
+    if (idx !== -1) {
+      local.teachers[idx] = { ...local.teachers[idx], ...teacherData };
+      if (teacherData.name) {
+        (local.classes || []).forEach(c => {
+          if (c.teacherId === teacherId) c.teacherName = teacherData.name;
+        });
+      }
+      saveLocalData(local);
+    }
+    return { id: teacherId, ...teacherData };
+  },
+
+  // Delete Teacher
+  async deleteTeacher(teacherId) {
+    try {
+      await supabase.from('teachers').delete().eq('id', teacherId);
+    } catch (e) {
+      console.warn('Supabase deleteTeacher failed:', e);
+    }
+
+    try {
+      await fetch(`${API_BASE}/teachers/${teacherId}`, { method: 'DELETE', signal: AbortSignal.timeout(2000) });
+    } catch (e) {
+      // Ignore
+    }
+
+    const local = getLocalData();
+    local.teachers = (local.teachers || []).filter(t => t.id !== teacherId);
+    saveLocalData(local);
+    return true;
+  },
+
+  // Add or Update Single Student in a class
+  async saveStudent(classId, studentData) {
+    const studentId = studentData.id || ('s_' + Date.now());
+    const fullStudent = {
+      id: studentId,
+      name: studentData.name.trim(),
+      nationalId: studentData.nationalId || studentData.national_id || '',
+      phone: studentData.phone || ''
+    };
+
+    // Supabase
+    try {
+      await supabase.from('students').upsert({
+        id: studentId,
+        class_id: classId,
+        name: fullStudent.name,
+        national_id: fullStudent.nationalId,
+        phone: fullStudent.phone
+      });
+    } catch (e) {
+      console.warn('Supabase saveStudent failed:', e);
+    }
+
+    // Local
+    const local = getLocalData();
+    const targetClass = (local.classes || []).find(c => c.id === classId);
+    if (targetClass) {
+      targetClass.students = targetClass.students || [];
+      const sIdx = targetClass.students.findIndex(s => s.id === studentId);
+      if (sIdx !== -1) {
+        targetClass.students[sIdx] = fullStudent;
+      } else {
+        targetClass.students.push(fullStudent);
+      }
+      // Sort alphabetically
+      targetClass.students.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
+      saveLocalData(local);
+    }
+
+    return fullStudent;
+  },
+
+  // Delete Single Student from a class
+  async deleteStudent(classId, studentId) {
+    try {
+      await supabase.from('students').delete().eq('id', studentId);
+      await supabase.from('attendance').delete().eq('student_id', studentId);
+    } catch (e) {
+      console.warn('Supabase deleteStudent failed:', e);
+    }
+
+    const local = getLocalData();
+    const targetClass = (local.classes || []).find(c => c.id === classId);
+    if (targetClass) {
+      targetClass.students = (targetClass.students || []).filter(s => s.id !== studentId);
+      saveLocalData(local);
+    }
+    return true;
+  },
+
+  // Update School Name
+  async updateSchoolName(schoolName) {
+    try {
+      await fetch(`${API_BASE}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schoolName }),
+        signal: AbortSignal.timeout(2000)
+      });
+    } catch (e) {
+      // Ignore
+    }
+
+    const local = getLocalData();
+    local.schoolName = schoolName;
+    saveLocalData(local);
+    return schoolName;
   }
 };
