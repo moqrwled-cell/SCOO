@@ -120,15 +120,13 @@ export default function App() {
   const handleSaveStudent = async (classId, studentData) => {
     const saved = await api.saveStudent(classId, studentData);
     setClasses(prev => prev.map(c => {
+      // Remove student from any other class if transferred
+      const nextStudents = (c.students || []).filter(s => s.id !== saved.id);
       if (c.id === classId) {
-        const students = [...(c.students || [])];
-        const sIdx = students.findIndex(s => s.id === saved.id);
-        if (sIdx !== -1) students[sIdx] = saved;
-        else students.push(saved);
-        students.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
-        return { ...c, students };
+        nextStudents.push(saved);
+        nextStudents.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
       }
-      return c;
+      return { ...c, students: nextStudents };
     }));
     return saved;
   };
@@ -200,6 +198,10 @@ export default function App() {
             setSelectedDate={setSelectedDate}
             schoolName={schoolName}
             onViewClass={handleViewClass}
+            onSaveAttendance={handleSaveAttendance}
+            onSaveStudent={handleSaveStudent}
+            onDeleteStudent={handleDeleteStudent}
+            onNavigateToManagement={() => setCurrentTab('classes')}
           />
         )}
 

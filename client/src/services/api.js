@@ -144,37 +144,44 @@ export const api = {
   async getSchoolData() {
     // 1. Try Supabase Cloud DB
     try {
-      const [tRes, cRes, sRes, aRes] = await Promise.all([
+      const [tRes, cRes, sRes, aRes, settRes] = await Promise.all([
         supabase.from('teachers').select('*'),
         supabase.from('classes').select('*'),
         supabase.from('students').select('*'),
-        supabase.from('attendance').select('*')
+        supabase.from('attendance').select('*'),
+        supabase.from('settings').select('*')
       ]);
 
       if (!tRes.error && !cRes.error && !sRes.error) {
-        const teachers = tRes.data && tRes.data.length > 0 ? tRes.data : DEFAULT_SCHOOL_DATA.teachers;
-        const rawClasses = cRes.data && cRes.data.length > 0 ? cRes.data : DEFAULT_SCHOOL_DATA.classes;
+        // Dynamic School Name from settings
+        let schoolName = "مدرسة قطوف الخير";
+        if (!settRes.error && settRes.data) {
+          const snRow = settRes.data.find(r => r.key === 'school_name');
+          if (snRow && snRow.value) schoolName = snRow.value;
+        }
+
+        const teachers = tRes.data || [];
+        const rawClasses = cRes.data || [];
         const allStudents = sRes.data || [];
 
         // Group students into classes and sort alphabetically
         const classes = rawClasses.map(cls => {
-          const clsStudents = (allStudents.length > 0
-            ? allStudents.filter(st => st.class_id === cls.id)
-            : (cls.students || [])
-          ).map(st => ({
-            id: st.id,
-            name: st.name,
-            nationalId: st.national_id || st.nationalId,
-            phone: st.phone
-          }));
+          const clsStudents = allStudents
+            .filter(st => st.class_id === cls.id)
+            .map(st => ({
+              id: st.id,
+              name: st.name,
+              nationalId: st.national_id || st.nationalId || '',
+              phone: st.phone || ''
+            }));
 
           clsStudents.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
 
           return {
             id: cls.id,
             name: cls.name,
-            teacherId: cls.teacher_id || cls.teacherId,
-            teacherName: cls.teacher_name || cls.teacherName,
+            teacherId: cls.teacher_id || cls.teacherId || '',
+            teacherName: cls.teacher_name || cls.teacherName || 'غير محدد',
             schedule: cls.schedule || 'SAT_MON_WED',
             students: clsStudents
           };
@@ -197,7 +204,7 @@ export const api = {
         }
 
         const cloudData = {
-          schoolName: "مدرسة قطوف الخير",
+          schoolName,
           teachers,
           classes,
           attendance
@@ -333,7 +340,10 @@ export const api = {
   // Delete Class
   async deleteClass(classId) {
     try {
-      await supabase.from('classes').delete().eq('id', classId);
+      await supabase.from('attendance').delete().eq('class_id', classId);
+      await supabase.from('students').delete().eq('class_id', classId);
+      const { error } = await supabase.from('classes').delete().eq('id', classId);
+      if (error) console.error('Supabase deleteClass error:', error);
     } catch (e) {
       console.warn('Supabase deleteClass failed:', e);
     }
@@ -423,7 +433,9 @@ export const api = {
   // Delete Teacher
   async deleteTeacher(teacherId) {
     try {
-      await supabase.from('teachers').delete().eq('id', teacherId);
+      await supabase.from('classes').update({ teacher_id: null, teacher_name: 'غير محدد' }).eq('teacher_id', teacherId);
+      const { error } = await supabase.from('teachers').delete().eq('id', teacherId);
+      if (error) console.error('Supabase deleteTeacher error:', error);
     } catch (e) {
       console.warn('Supabase deleteTeacher failed:', e);
     }
@@ -436,6 +448,12 @@ export const api = {
 
     const local = getLocalData();
     local.teachers = (local.teachers || []).filter(t => t.id !== teacherId);
+    (local.classes || []).forEach(c => {
+      if (c.teacherId === teacherId) {
+        c.teacherId = '';
+        c.teacherName = 'غير محدد';
+      }
+    });
     saveLocalData(local);
     return true;
   },
@@ -465,16 +483,14 @@ export const api = {
 
     // Local
     const local = getLocalData();
+    // Ensure student is removed from any previous class
+    (local.classes || []).forEach(c => {
+      c.students = (c.students || []).filter(s => s.id !== studentId);
+    });
     const targetClass = (local.classes || []).find(c => c.id === classId);
     if (targetClass) {
       targetClass.students = targetClass.students || [];
-      const sIdx = targetClass.students.findIndex(s => s.id === studentId);
-      if (sIdx !== -1) {
-        targetClass.students[sIdx] = fullStudent;
-      } else {
-        targetClass.students.push(fullStudent);
-      }
-      // Sort alphabetically
+      targetClass.students.push(fullStudent);
       targetClass.students.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
       saveLocalData(local);
     }
@@ -505,6 +521,12 @@ export const api = {
 
   // Update School Name
   async updateSchoolName(schoolName) {
+    try {
+      await supabase.from('settings').upsert({ key: 'school_name', value: schoolName }, { onConflict: 'key' });
+    } catch (e) {
+      console.warn('Supabase updateSchoolName failed:', e);
+    }
+
     try {
       await fetch(`${API_BASE}/settings`, {
         method: 'POST',

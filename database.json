@@ -26,11 +26,11 @@
       ]
     },
     {
-      "id": "c_nesreen",
-      "name": "فصل أ. نسرين",
+      "id": "c_1793575079982",
+      "name": "أ.نسرين",
       "teacherId": "t_nesreen",
       "teacherName": "أ. نسرين",
-      "schedule": "SUN_TUE_THU",
+      "schedule": "SAT_MON_WED",
       "students": [
         { "id": "s201", "name": "دانيا سامر الخطيب", "nationalId": "2001", "phone": "0599000201" },
         { "id": "s202", "name": "رامي حسام عريقات", "nationalId": "2002", "phone": "0599000202" },

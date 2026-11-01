@@ -285,6 +285,18 @@ app.post('/api/classes/:id/students', (req, res) => {
   res.json(targetClass);
 });
 
+// Delete student from a class
+app.delete('/api/classes/:classId/students/:studentId', (req, res) => {
+  const db = getDB();
+  const { classId, studentId } = req.params;
+  const targetClass = (db.classes || []).find(c => c.id === classId);
+  if (targetClass) {
+    targetClass.students = (targetClass.students || []).filter(s => s.id !== studentId);
+    saveDB(db);
+  }
+  res.json({ success: true, deletedStudentId: studentId });
+});
+
 // Attendance: get for specific date
 app.get('/api/attendance', (req, res) => {
   const db = getDB();

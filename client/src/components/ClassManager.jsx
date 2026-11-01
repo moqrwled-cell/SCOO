@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { 
   UploadCloud, 
   FileSpreadsheet, 
@@ -18,7 +18,10 @@ import {
   Building2,
   GraduationCap,
   Sparkles,
-  ArrowUpDown
+  ArrowUpDown,
+  ArrowRightLeft,
+  Search,
+  Filter
 } from 'lucide-react';
 import { parseExcelFile, downloadSampleExcel } from '../utils/excelParser';
 import { StudentAvatar } from './VisualCharts';
@@ -38,7 +41,7 @@ export default function ClassManager({
 }) {
   const fileInputRef = useRef(null);
 
-  // Tabs within Management: 'classes' | 'teachers' | 'excel'
+  // Tabs within Management: 'classes' | 'teachers' | 'all_students' | 'excel'
   const [activeSubTab, setActiveSubTab] = useState('classes');
 
   // School Name Edit State
@@ -67,6 +70,19 @@ export default function ClassManager({
   const [studentFormPhone, setStudentFormPhone] = useState('');
   const [showStudentForm, setShowStudentForm] = useState(false);
 
+  // Transfer Student Modal
+  const [transferringStudent, setTransferringStudent] = useState(null); // { student, fromClassId } or null
+  const [transferTargetClassId, setTransferTargetClassId] = useState('');
+
+  // All Students SubTab Filters
+  const [allStudentsSearch, setAllStudentsSearch] = useState('');
+  const [allStudentsClassFilter, setAllStudentsClassFilter] = useState('all');
+  const [newStudentModalOpen, setNewStudentModalOpen] = useState(false);
+  const [newStudentClassId, setNewStudentClassId] = useState(classes[0]?.id || '');
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentId, setNewStudentId] = useState('');
+  const [newStudentPhone, setNewStudentPhone] = useState('');
+
   // Excel Upload State
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -75,6 +91,29 @@ export default function ClassManager({
   const [importClassName, setImportClassName] = useState('');
   const [importTeacherId, setImportTeacherId] = useState('');
   const [importSchedule, setImportSchedule] = useState('SAT_MON_WED');
+
+  // Total school students count
+  const totalStudentsCount = useMemo(() => {
+    return classes.reduce((sum, c) => sum + (c.students?.length || 0), 0);
+  }, [classes]);
+
+  // Master flattened students list with class info
+  const allFlattenedStudents = useMemo(() => {
+    const list = [];
+    classes.forEach(c => {
+      (c.students || []).forEach(st => {
+        list.push({
+          ...st,
+          classId: c.id,
+          className: c.name,
+          teacherName: c.teacherName,
+          schedule: c.schedule
+        });
+      });
+    });
+    list.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
+    return list;
+  }, [classes]);
 
   // ---------------- Handlers for School Name ----------------
   const handleSaveSchoolName = () => {
@@ -205,19 +244,61 @@ export default function ClassManager({
     setShowStudentForm(false);
   };
 
-  const handleDeleteStudentAction = async (studentId) => {
-    if (!activeClassStudents) return;
-    if (confirm('هل أنت متأكد من حذف هذا الطالب من الفصل؟')) {
-      await onDeleteStudent(activeClassStudents.id, studentId);
-      // Immediately remove student from modal view
-      setActiveClassStudents(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          students: (prev.students || []).filter(s => s.id !== studentId)
-        };
-      });
+  const handleDeleteStudentAction = async (classId, studentId) => {
+    if (confirm('هل أنت متأكد من حذف هذا الطالب نهائياً من قاعدة البيانات؟')) {
+      await onDeleteStudent(classId, studentId);
+      if (activeClassStudents) {
+        setActiveClassStudents(prev => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            students: (prev.students || []).filter(s => s.id !== studentId)
+          };
+        });
+      }
     }
+  };
+
+  // ---------------- Handlers for Transferring Student ----------------
+  const handleOpenTransferModal = (student, fromClassId) => {
+    setTransferringStudent({ student, fromClassId });
+    const otherClass = classes.find(c => c.id !== fromClassId);
+    setTransferTargetClassId(otherClass ? otherClass.id : fromClassId);
+  };
+
+  const handleConfirmTransfer = async (e) => {
+    e.preventDefault();
+    if (!transferringStudent || !transferTargetClassId || transferTargetClassId === transferringStudent.fromClassId) {
+      setTransferringStudent(null);
+      return;
+    }
+
+    const { student } = transferringStudent;
+    await onSaveStudent(transferTargetClassId, {
+      id: student.id,
+      name: student.name,
+      nationalId: student.nationalId || student.national_id || '',
+      phone: student.phone || ''
+    });
+
+    setTransferringStudent(null);
+  };
+
+  // ---------------- Handlers for Quick New Student from Master Directory ----------------
+  const handleSaveNewStudentFromMaster = async (e) => {
+    e.preventDefault();
+    if (!newStudentName.trim() || !newStudentClassId) return;
+
+    await onSaveStudent(newStudentClassId, {
+      name: newStudentName.trim(),
+      nationalId: newStudentId.trim(),
+      phone: newStudentPhone.trim()
+    });
+
+    setNewStudentName('');
+    setNewStudentId('');
+    setNewStudentPhone('');
+    setNewStudentModalOpen(false);
   };
 
   // ---------------- Handlers for Excel Import ----------------
@@ -251,32 +332,47 @@ export default function ClassManager({
       return;
     }
 
-    if (targetClassId === 'new' && !importClassName.trim()) {
-      setUploadError('يرجى إدخال اسم الفصل');
-      return;
+    try {
+      if (targetClassId === 'new') {
+        const teacherObj = teachers.find(t => t.id === importTeacherId);
+        const newClass = {
+          name: importClassName.trim() || 'فصل جديد',
+          teacherId: importTeacherId,
+          teacherName: teacherObj ? teacherObj.name : 'غير محدد',
+          schedule: importSchedule,
+          students: parsedData.students
+        };
+        await onSaveClass(newClass);
+      } else {
+        const existing = classes.find(c => c.id === targetClassId);
+        if (existing) {
+          const mergedStudents = [...(existing.students || [])];
+          parsedData.students.forEach(st => {
+            if (!mergedStudents.some(e => e.name === st.name)) {
+              mergedStudents.push(st);
+            }
+          });
+          mergedStudents.sort((a, b) => a.name.localeCompare(b.name, 'ar', { sensitivity: 'base' }));
+
+          await onSaveClass({
+            ...existing,
+            students: mergedStudents
+          });
+        }
+      }
+
+      setParsedData(null);
+      setActiveSubTab('classes');
+    } catch (err) {
+      console.error(err);
+      setUploadError('فشل حفظ الفصل في قاعدة البيانات');
     }
-
-    const teacherObj = teachers.find(t => t.id === importTeacherId);
-
-    const classPayload = {
-      id: targetClassId === 'new' ? undefined : targetClassId,
-      name: targetClassId === 'new' ? importClassName.trim() : (classes.find(c => c.id === targetClassId)?.name || importClassName),
-      teacherId: importTeacherId,
-      teacherName: teacherObj ? teacherObj.name : 'غير محدد',
-      schedule: importSchedule,
-      students: parsedData.students
-    };
-
-    await onSaveClass(classPayload);
-    setParsedData(null);
-    setImportClassName('');
-    setUploadError('');
-    alert('تم حفظ الفصل والطلاب بنجاح في قاعدة البيانات!');
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      {/* Top Banner: School Header & Name Editor */}
+      
+      {/* Top Banner: School Name & Management Header */}
       <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
@@ -286,17 +382,16 @@ export default function ClassManager({
                   type="text"
                   value={currentSchoolName}
                   onChange={(e) => setCurrentSchoolName(e.target.value)}
-                  className="px-3 py-1 text-base font-extrabold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-sm font-extrabold text-slate-900 focus:outline-none focus:border-slate-500"
+                  autoFocus
                 />
                 <button
-                  type="button"
                   onClick={handleSaveSchoolName}
-                  className="px-3 py-1 bg-slate-900 text-white rounded-lg text-xs font-bold"
+                  className="p-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs"
                 >
                   حفظ
                 </button>
                 <button
-                  type="button"
                   onClick={() => {
                     setCurrentSchoolName(schoolName);
                     setEditingSchoolName(false);
@@ -321,32 +416,32 @@ export default function ClassManager({
               </>
             )}
             <span className="text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-              لوحة التحكم والإدارة الشاملة
+              تحرير وإدارة كاملة للمدير
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            إمكانية التعديل والإضافة والحذف الكاملة لكافة الفصول، المعلمات، والطلاب مع الحفظ السحابي في Supabase.
+            إدارة كافة الفصول، المعلمات، والطلاب مع الحفظ السحابي الدائم في Supabase.
           </p>
         </div>
 
-        {/* Sub-Navigation Pills */}
-        <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+        {/* Sub-Navigation Tabs */}
+        <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
           <button
             type="button"
             onClick={() => setActiveSubTab('classes')}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
               activeSubTab === 'classes'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            إدارة الفصول والطلاب ({classes.length})
+            إدارة الفصول ({classes.length})
           </button>
 
           <button
             type="button"
             onClick={() => setActiveSubTab('teachers')}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
               activeSubTab === 'teachers'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -357,8 +452,20 @@ export default function ClassManager({
 
           <button
             type="button"
+            onClick={() => setActiveSubTab('all_students')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+              activeSubTab === 'all_students'
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            سجل الطلاب الشامل ({totalStudentsCount})
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveSubTab('excel')}
-            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
               activeSubTab === 'excel'
                 ? 'bg-white text-slate-900 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -369,13 +476,13 @@ export default function ClassManager({
         </div>
       </div>
 
-      {/* ================= SECTION 1: CLASSES MANAGEMENT ================= */}
+      {/* ================= SUB-TAB 1: CLASSES MANAGEMENT ================= */}
       {activeSubTab === 'classes' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-base font-extrabold text-slate-900">قائمة الفصول المدرسية</h3>
-              <p className="text-xs text-slate-500">نظام صف واحد لكل معلمة كل 3 أيام</p>
+              <p className="text-xs text-slate-500">نظام صف واحد لكل معلمة يتناوب كل 3 أيام</p>
             </div>
 
             <button
@@ -440,12 +547,12 @@ export default function ClassManager({
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm(`هل أنت متأكد من حذف فصل "${cls.name}" وكافة طلابه؟`)) {
+                      if (confirm(`تحذير نهائي: هل أنت متأكد من حذف فصل "${cls.name}" نهائياً؟ سيتم حذفه من قاعدة البيانات وسحابة Supabase.`)) {
                         onDeleteClass(cls.id);
                       }
                     }}
                     className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
-                    title="حذف الفصل"
+                    title="حذف الفصل نهائياً"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -456,13 +563,13 @@ export default function ClassManager({
         </div>
       )}
 
-      {/* ================= SECTION 2: TEACHERS MANAGEMENT ================= */}
+      {/* ================= SUB-TAB 2: TEACHERS MANAGEMENT ================= */}
       {activeSubTab === 'teachers' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-base font-extrabold text-slate-900">قائمة معلمات مدرسة قطوف الخير</h3>
-              <p className="text-xs text-slate-500">إضافة وتعديل وحذف بيانات المعلمات</p>
+              <h3 className="text-base font-extrabold text-slate-900">قائمة معلمات المدرسة</h3>
+              <p className="text-xs text-slate-500">إضافة وتعديل وحذف بيانات المعلمات وتكليف الفصول</p>
             </div>
 
             <button
@@ -518,7 +625,7 @@ export default function ClassManager({
                     <button
                       type="button"
                       onClick={() => {
-                        if (confirm(`هل أنت متأكد من حذف المعلمة "${t.name}"؟`)) {
+                        if (confirm(`هل أنت متأكد من حذف المعلمة "${t.name}" نهائياً؟`)) {
                           onDeleteTeacher(t.id);
                         }
                       }}
@@ -535,7 +642,170 @@ export default function ClassManager({
         </div>
       )}
 
-      {/* ================= SECTION 3: EXCEL UPLOADER ================= */}
+      {/* ================= SUB-TAB 3: MASTER ALL STUDENTS DIRECTORY ================= */}
+      {activeSubTab === 'all_students' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900">سجل الطلاب الشامل لجميع الفصول</h3>
+              <p className="text-xs text-slate-500">
+                عرض ونقل وتعديل وحذف أي طالب في المدرسة ({totalStudentsCount} طالب/طالبة)
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setNewStudentClassId(classes[0]?.id || '');
+                setNewStudentName('');
+                setNewStudentId('');
+                setNewStudentPhone('');
+                setNewStudentModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-xs transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إضافة طالب جديد للمدرسة</span>
+            </button>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <div className="bg-white border border-slate-200 p-3.5 rounded-2xl shadow-xs flex flex-col sm:flex-row items-center gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="ابحث بالاسم، رقم القيد، أو رقم الهاتف..."
+                value={allStudentsSearch}
+                onChange={(e) => setAllStudentsSearch(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-9 pl-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-slate-400"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+              <select
+                value={allStudentsClassFilter}
+                onChange={(e) => setAllStudentsClassFilter(e.target.value)}
+                className="h-9 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:outline-none w-full sm:w-auto font-medium"
+              >
+                <option value="all">كل الفصول ({classes.length})</option>
+                {classes.map(c => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.students?.length || 0})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Master Students Table */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4 w-12">#</th>
+                    <th className="py-3 px-4">اسم الطالب</th>
+                    <th className="py-3 px-4">الفصل الحالي</th>
+                    <th className="py-3 px-4">المعلمة</th>
+                    <th className="py-3 px-4 font-mono">رقم القيد</th>
+                    <th className="py-3 px-4 font-mono">هاتف ولي الأمر</th>
+                    <th className="py-3 px-4 text-left">إجراءات المدير</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(() => {
+                    const filtered = allFlattenedStudents.filter(st => {
+                      const matchClass = allStudentsClassFilter === 'all' || st.classId === allStudentsClassFilter;
+                      const q = allStudentsSearch.trim().toLowerCase();
+                      const matchQuery = !q || 
+                        st.name.toLowerCase().includes(q) || 
+                        (st.nationalId || '').includes(q) || 
+                        (st.phone || '').includes(q);
+                      return matchClass && matchQuery;
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="py-10 text-center text-slate-400">
+                            لا يوجد طلاب مطابقين لخيارات البحث أو الفلترة.
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filtered.map((st, i) => (
+                      <tr key={st.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3 px-4 font-bold text-slate-400 tabular-nums">{i + 1}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900">
+                          <div className="flex items-center gap-2">
+                            <StudentAvatar name={st.name} className="w-7 h-7 text-[10px]" />
+                            <span>{st.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md">
+                            {st.className}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 font-medium">
+                          {st.teacherName}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-600 tabular-nums">
+                          {st.nationalId || '-'}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-600 tabular-nums">
+                          {st.phone || '-'}
+                        </td>
+                        <td className="py-3 px-4 text-left">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Transfer Student Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenTransferModal(st, st.classId)}
+                              className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors inline-flex items-center gap-1"
+                              title="نقل الطالب إلى فصل دراسي آخر"
+                            >
+                              <ArrowRightLeft className="w-3 h-3" />
+                              <span>نقل الفصل</span>
+                            </button>
+
+                            {/* Edit Student */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const clsObj = classes.find(c => c.id === st.classId);
+                                setActiveClassStudents(clsObj);
+                                handleOpenEditStudent(st);
+                              }}
+                              className="p-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                              title="تعديل بيانات الطالب"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Delete Student */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteStudentAction(st.classId, st.id)}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors"
+                              title="حذف الطالب نهائياً"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= SUB-TAB 4: EXCEL UPLOADER ================= */}
       {activeSubTab === 'excel' && (
         <div className="space-y-6">
           <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center hover:border-slate-400 transition-colors">
@@ -816,7 +1086,7 @@ export default function ClassManager({
         </div>
       )}
 
-      {/* ================= MODAL: MANAGE STUDENTS OF CLASS ================= */}
+      {/* ================= MODAL: MANAGE STUDENTS OF A SPECIFIC CLASS ================= */}
       {activeClassStudents && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl relative space-y-4 max-h-[90vh] flex flex-col">
@@ -974,6 +1244,14 @@ export default function ClassManager({
                           <div className="flex items-center justify-end gap-1">
                             <button
                               type="button"
+                              onClick={() => handleOpenTransferModal(st, activeClassStudents.id)}
+                              className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                              title="نقل الطالب لفصل آخر"
+                            >
+                              <ArrowRightLeft className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleOpenEditStudent(st)}
                               className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded"
                               title="تعديل بيانات الطالب"
@@ -982,7 +1260,7 @@ export default function ClassManager({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteStudentAction(st.id)}
+                              onClick={() => handleDeleteStudentAction(activeClassStudents.id, st.id)}
                               className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded"
                               title="حذف الطالب"
                             >
@@ -1009,6 +1287,147 @@ export default function ClassManager({
           </div>
         </div>
       )}
+
+      {/* ================= MODAL: TRANSFER STUDENT TO ANOTHER CLASS ================= */}
+      {transferringStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button
+              onClick={() => setTransferringStudent(null)}
+              className="absolute left-4 top-4 text-slate-400 hover:text-slate-600 p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <ArrowRightLeft className="w-4 h-4 text-blue-600" />
+              <span>نقل الطالب إلى فصل آخر</span>
+            </h3>
+
+            <p className="text-xs text-slate-500">
+              اختر الفصل الجديد الذي ترغب بنقل الطالب <strong className="text-slate-900 font-bold">"{transferringStudent.student.name}"</strong> إليه:
+            </p>
+
+            <form onSubmit={handleConfirmTransfer} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">الفصل المستهدف الجديد:</label>
+                <select
+                  value={transferTargetClassId}
+                  onChange={(e) => setTransferTargetClassId(e.target.value)}
+                  className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white"
+                >
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id} disabled={c.id === transferringStudent.fromClassId}>
+                      {c.name} {c.id === transferringStudent.fromClassId ? '(الفصل الحالي)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setTransferringStudent(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-extrabold text-white bg-blue-700 hover:bg-blue-800 rounded-xl shadow-xs"
+                >
+                  تأكيد النقل
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: ADD NEW STUDENT FROM MASTER DIRECTORY ================= */}
+      {newStudentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
+            <button
+              onClick={() => setNewStudentModalOpen(false)}
+              className="absolute left-4 top-4 text-slate-400 hover:text-slate-600 p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-base font-extrabold text-slate-900">
+              إضافة طالب جديد إلى المدرسة
+            </h3>
+
+            <form onSubmit={handleSaveNewStudentFromMaster} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اختر الفصل:</label>
+                <select
+                  value={newStudentClassId}
+                  onChange={(e) => setNewStudentClassId(e.target.value)}
+                  className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white"
+                >
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اسم الطالب الرباعي:</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مثلاً: يوسف أحمد الصالح"
+                  value={newStudentName}
+                  onChange={(e) => setNewStudentName(e.target.value)}
+                  className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">رقم الهوية / القيد (اختياري):</label>
+                <input
+                  type="text"
+                  placeholder="مثلاً: 1099"
+                  value={newStudentId}
+                  onChange={(e) => setNewStudentId(e.target.value)}
+                  className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">هاتف ولي الأمر (واتساب):</label>
+                <input
+                  type="tel"
+                  dir="ltr"
+                  placeholder="مثلاً: 0599000100"
+                  value={newStudentPhone}
+                  onChange={(e) => setNewStudentPhone(e.target.value)}
+                  className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setNewStudentModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-extrabold text-white bg-slate-900 hover:bg-slate-800 rounded-xl"
+                >
+                  حفظ الطالب
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

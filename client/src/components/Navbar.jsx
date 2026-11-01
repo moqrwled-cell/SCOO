@@ -133,7 +133,7 @@ export default function Navbar({
             }`}
           >
             <LayoutDashboard className="w-4 h-4 text-amber-400" />
-            <span>لوحة المتابعة والرسوم البيانية (المدير)</span>
+            <span>لوحة المتابعة وتحرير الحضور (المدير)</span>
           </button>
 
           <button
@@ -145,7 +145,7 @@ export default function Navbar({
             }`}
           >
             <FileSpreadsheet className="w-4 h-4 text-blue-400" />
-            <span>إدارة الصفوف ورفع الإكسل</span>
+            <span>الإدارة الشاملة للمدرسة (المدير)</span>
           </button>
         </div>
       </div>
