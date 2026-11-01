@@ -1,0 +1,17 @@
+{
+  "name": "school-attendance-system",
+  "version": "1.0.0",
+  "description": "نظام الحضور والغياب الذكي للمدرسة المصغرة",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
